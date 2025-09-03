@@ -39,7 +39,7 @@ def register_content_tools(app: FastMCP, presentations: Dict, get_current_presen
         """
         try:
             # Get presentation
-            pres_id = presentation_id or get_current_presentation_id()
+            pres_id = presentation_id if presentation_id is not None else get_current_presentation_id()
             if pres_id not in presentations:
                 return {"error": "Presentation not found"}
             
