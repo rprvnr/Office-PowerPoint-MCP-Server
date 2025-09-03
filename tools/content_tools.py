@@ -13,6 +13,142 @@ import os
 def register_content_tools(app: FastMCP, presentations: Dict, get_current_presentation_id, validate_parameters, is_positive, is_non_negative, is_in_range, is_valid_rgb):
     """Register content management tools with the FastMCP app"""
     
+    # ======================== NEW FUNCTION ADDED ========================
+    @app.tool()
+    def read_slide(
+        slide_index: int,
+        presentation_id: str = None,
+        include_shapes: bool = True,
+        include_text: bool = True,
+        include_charts: bool = True,
+        include_images: bool = False
+    ) -> Dict:
+        """
+        Read and analyze the contents of a PowerPoint slide.
+        
+        Args:
+            slide_index: Index of the slide to read (0-based)
+            presentation_id: Optional presentation ID (uses current if not provided)
+            include_shapes: Whether to include shape information
+            include_text: Whether to extract text content from shapes
+            include_charts: Whether to include chart data and properties
+            include_images: Whether to include image information
+            
+        Returns:
+            Dictionary with slide content analysis
+        """
+        try:
+            # Get presentation
+            pres_id = presentation_id or get_current_presentation_id()
+            if pres_id not in presentations:
+                return {"error": "Presentation not found"}
+            
+            pres = presentations[pres_id]
+            
+            # Validate slide index
+            if not (0 <= slide_index < len(pres.slides)):
+                return {"error": f"Slide index {slide_index} out of range"}
+            
+            slide = pres.slides[slide_index]
+            
+            # Initialize result structure
+            result = {
+                "slide_index": slide_index,
+                "slide_layout": slide.slide_layout.name if hasattr(slide.slide_layout, 'name') else "Unknown",
+                "shape_count": len(slide.shapes),
+                "shapes": []
+            }
+            
+            if include_shapes:
+                for i, shape in enumerate(slide.shapes):
+                    shape_info = {
+                        "shape_index": i,
+                        "shape_type": str(shape.shape_type),
+                        "name": shape.name if hasattr(shape, 'name') else f"Shape_{i}",
+                        "left": shape.left,
+                        "top": shape.top,
+                        "width": shape.width,
+                        "height": shape.height
+                    }
+                    
+                    # Extract text content
+                    if include_text and hasattr(shape, 'has_text_frame') and shape.has_text_frame:
+                        text_content = []
+                        for paragraph in shape.text_frame.paragraphs:
+                            if paragraph.text.strip():
+                                text_content.append({
+                                    "text": paragraph.text,
+                                    "level": paragraph.level,
+                                    "alignment": str(paragraph.alignment) if hasattr(paragraph, 'alignment') else None
+                                })
+                        if text_content:
+                            shape_info["text_content"] = text_content
+                    
+                    # Extract chart information
+                    if include_charts and hasattr(shape, 'has_chart') and shape.has_chart:
+                        try:
+                            chart = shape.chart
+                            chart_info = {
+                                "chart_type": str(chart.chart_type),
+                                "has_legend": chart.has_legend,
+                                "categories": [],
+                                "series": []
+                            }
+                            
+                            # Get chart data
+                            if hasattr(chart, 'plots') and chart.plots:
+                                plot = chart.plots[0]
+                                if hasattr(plot, 'categories'):
+                                    chart_info["categories"] = [cat.label for cat in plot.categories]
+                                
+                                if hasattr(plot, 'series'):
+                                    for series in plot.series:
+                                        series_info = {
+                                            "name": series.name,
+                                            "values": [point.value for point in series.points] if hasattr(series, 'points') else []
+                                        }
+                                        chart_info["series"].append(series_info)
+                            
+                            shape_info["chart"] = chart_info
+                        except Exception as chart_error:
+                            shape_info["chart_error"] = f"Failed to read chart: {str(chart_error)}"
+                    
+                    # Extract image information
+                    if include_images and hasattr(shape, 'image'):
+                        try:
+                            image_info = {
+                                "format": shape.image.content_type,
+                                "size_bytes": len(shape.image.blob),
+                                "filename": getattr(shape.image, 'filename', 'Unknown')
+                            }
+                            shape_info["image"] = image_info
+                        except Exception as img_error:
+                            shape_info["image_error"] = f"Failed to read image: {str(img_error)}"
+                    
+                    result["shapes"].append(shape_info)
+            
+            # Extract slide notes if present
+            try:
+                if hasattr(slide, 'notes_slide') and slide.notes_slide:
+                    notes_text = []
+                    for shape in slide.notes_slide.shapes:
+                        if hasattr(shape, 'has_text_frame') and shape.has_text_frame:
+                            for paragraph in shape.text_frame.paragraphs:
+                                if paragraph.text.strip():
+                                    notes_text.append(paragraph.text)
+                    if notes_text:
+                        result["notes"] = notes_text
+            except Exception as notes_error:
+                result["notes_error"] = f"Failed to read notes: {str(notes_error)}"
+            
+            return result
+            
+        except Exception as e:
+            return {"error": f"Failed to read slide: {str(e)}"}
+    # ======================== END NEW FUNCTION ========================
+    
+    
+    
     @app.tool()
     def add_slide(
         layout_index: int = 1,
